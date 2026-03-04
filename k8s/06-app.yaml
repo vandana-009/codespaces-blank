@@ -1,0 +1,96 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-nids-app
+  namespace: ai-nids
+  labels:
+    app: ai-nids-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ai-nids-app
+  template:
+    metadata:
+      labels:
+        app: ai-nids-app
+    spec:
+      containers:
+      - name: ai-nids-app
+        image: ai-nids:latest
+        command: ["python", "realtime/orchestrator.py"]
+        ports:
+        - containerPort: 5000
+        env:
+        - name: FLASK_ENV
+          valueFrom:
+            configMapKeyRef:
+              name: ai-nids-config
+              key: FLASK_ENV
+        - name: LOG_LEVEL
+          valueFrom:
+            configMapKeyRef:
+              name: ai-nids-config
+              key: LOG_LEVEL
+        - name: FEDERATED_SERVER_ENABLED
+          valueFrom:
+            configMapKeyRef:
+              name: ai-nids-config
+              key: FEDERATED_SERVER_ENABLED
+        - name: PACKET_CAPTURE_ENABLED
+          valueFrom:
+            configMapKeyRef:
+              name: ai-nids-config
+              key: PACKET_CAPTURE_ENABLED
+        - name: SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: ai-nids-secrets
+              key: SECRET_KEY
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ai-nids-secrets
+              key: DB_PASSWORD
+        volumeMounts:
+        - name: models-storage
+          mountPath: /app/data/saved_models
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 5000
+          initialDelaySeconds: 60
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 5000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+      volumes:
+      - name: models-storage
+        persistentVolumeClaim:
+          claimName: models-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-nids-app
+  namespace: ai-nids
+  labels:
+    app: ai-nids-app
+spec:
+  ports:
+  - port: 80
+    targetPort: 5000
+    name: http
+  selector:
+    app: ai-nids-app
+  type: LoadBalancer

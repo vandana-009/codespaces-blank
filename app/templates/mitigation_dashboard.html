@@ -1,0 +1,602 @@
+{% extends "base.html" %}
+
+{% block title %}Mitigation Center - AI-NIDS{% endblock %}
+
+{% block content %}
+<div class="dashboard cyber-dashboard">
+    <!-- Animated Background Elements -->
+    <div class="cyber-bg-elements">
+        <div class="grid-overlay"></div>
+        <div class="scanning-beam"></div>
+    </div>
+
+    <!-- Page Header -->
+    <div class="page-header cyber-header">
+        <div>
+            <h1 class="page-title cyber-title">
+                <span class="title-icon">🛡️</span>
+                Mitigation Center
+            </h1>
+            <p class="page-subtitle">Automated threat response and mitigation tracking</p>
+        </div>
+        <div class="header-actions">
+            <span class="live-indicator cyber-pulse">
+                <span class="pulse-ring"></span>
+                <span class="pulse-dot"></span>
+                <span class="status-text">ACTIVE DEFENSE</span>
+            </span>
+            <button class="btn cyber-btn-refresh" onclick="refreshMitigationDashboard()">
+                <i class="bi bi-arrow-clockwise"></i>
+                <span>REFRESH</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Mitigation Stats Cards -->
+    <div class="stats-row cyber-stats">
+        <div class="stat-card cyber-card">
+            <div class="card-glow blue"></div>
+            <div class="stat-icon blue">
+                <i class="bi bi-gear"></i>
+                <div class="icon-pulse"></div>
+            </div>
+            <div class="stat-content">
+                <h3 id="total-strategies" class="cyber-number">0</h3>
+                <p>Total Strategies</p>
+            </div>
+            <div class="stat-sparkline" id="strategies-spark"></div>
+        </div>
+
+        <div class="stat-card cyber-card">
+            <div class="card-glow green"></div>
+            <div class="stat-icon green">
+                <i class="bi bi-check-circle"></i>
+                <div class="icon-pulse"></div>
+            </div>
+            <div class="stat-content">
+                <h3 id="executed-strategies" class="cyber-number">0</h3>
+                <p>Executed</p>
+            </div>
+            <div class="stat-trend up" id="executed-trend">
+                <i class="bi bi-arrow-up"></i> 0%
+            </div>
+        </div>
+
+        <div class="stat-card cyber-card">
+            <div class="card-glow orange"></div>
+            <div class="stat-icon orange">
+                <i class="bi bi-clock"></i>
+                <div class="icon-pulse"></div>
+            </div>
+            <div class="stat-content">
+                <h3 id="pending-strategies" class="cyber-number">0</h3>
+                <p>Pending</p>
+            </div>
+        </div>
+
+        <div class="stat-card cyber-card">
+            <div class="card-glow red"></div>
+            <div class="stat-icon red">
+                <i class="bi bi-x-circle"></i>
+                <div class="icon-pulse"></div>
+            </div>
+            <div class="stat-content">
+                <h3 id="failed-strategies" class="cyber-number">0</h3>
+                <p>Failed</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Content Grid -->
+    <div class="dashboard-grid">
+        <!-- Left Column -->
+        <div class="dashboard-column">
+            <!-- Mitigation Effectiveness Chart -->
+            <div class="chart-card cyber-card">
+                <div class="card-glow purple"></div>
+                <div class="card-header cyber-card-header">
+                    <h5 class="card-title">
+                        <i class="bi bi-graph-up"></i>
+                        Mitigation Effectiveness
+                    </h5>
+                    <div class="card-actions">
+                        <button class="btn btn-sm cyber-btn-outline" onclick="refreshEffectivenessChart()">
+                            <i class="bi bi-arrow-clockwise"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <canvas id="effectivenessChart" height="200"></canvas>
+                </div>
+            </div>
+
+            <!-- Attack Type Distribution -->
+            <div class="chart-card cyber-card">
+                <div class="card-glow cyan"></div>
+                <div class="card-header cyber-card-header">
+                    <h5 class="card-title">
+                        <i class="bi bi-pie-chart"></i>
+                        Mitigation by Attack Type
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <canvas id="attackTypeChart" height="200"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Column -->
+        <div class="dashboard-column">
+            <!-- Active Mitigations -->
+            <div class="data-card cyber-card">
+                <div class="card-glow yellow"></div>
+                <div class="card-header cyber-card-header">
+                    <h5 class="card-title">
+                        <i class="bi bi-play-circle"></i>
+                        Active Mitigations
+                    </h5>
+                    <div class="card-actions">
+                        <button class="btn btn-sm cyber-btn-outline" onclick="refreshActiveMitigations()">
+                            <i class="bi bi-arrow-clockwise"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div id="active-mitigations-list" class="data-list">
+                        <div class="data-item loading">
+                            <div class="spinner-border spinner-border-sm" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            Loading active mitigations...
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recent Mitigation Actions -->
+            <div class="data-card cyber-card">
+                <div class="card-glow green"></div>
+                <div class="card-header cyber-card-header">
+                    <h5 class="card-title">
+                        <i class="bi bi-clock-history"></i>
+                        Recent Actions
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div id="recent-mitigations-list" class="data-list">
+                        <div class="data-item loading">
+                            <div class="spinner-border spinner-border-sm" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            Loading recent mitigations...
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Mitigation Details Modal -->
+    <div class="modal fade" id="mitigationModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content cyber-modal">
+                <div class="modal-header cyber-modal-header">
+                    <h5 class="modal-title">
+                        <i class="bi bi-shield"></i>
+                        Mitigation Details
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" id="mitigation-modal-body">
+                    <!-- Content loaded dynamically -->
+                </div>
+                <div class="modal-footer cyber-modal-footer">
+                    <button type="button" class="btn cyber-btn-secondary" data-bs-dismiss="modal">Close</button>
+                    <button type="button" class="btn cyber-btn-primary" id="execute-btn" style="display: none;">Execute</button>
+                    <button type="button" class="btn cyber-btn-danger" id="rollback-btn" style="display: none;">Rollback</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Global variables
+let effectivenessChart = null;
+let attackTypeChart = null;
+
+// Initialize dashboard
+document.addEventListener('DOMContentLoaded', function() {
+    loadMitigationStats();
+    loadEffectivenessChart();
+    loadAttackTypeChart();
+    loadActiveMitigations();
+    loadRecentMitigations();
+
+    // Auto-refresh every 30 seconds
+    setInterval(refreshMitigationDashboard, 30000);
+});
+
+// Load mitigation statistics
+async function loadMitigationStats() {
+    try {
+        const response = await fetch('/api/mitigation/stats');
+        const data = await response.json();
+
+        if (data.error) {
+            console.error('Error loading stats:', data.error);
+            return;
+        }
+
+        // Update stats cards
+        document.getElementById('total-strategies').textContent = data.stats.total_strategies.toLocaleString();
+        document.getElementById('executed-strategies').textContent = data.stats.executed_strategies.toLocaleString();
+        document.getElementById('pending-strategies').textContent = data.stats.pending_strategies.toLocaleString();
+        document.getElementById('failed-strategies').textContent = data.stats.failed_strategies.toLocaleString();
+
+        // Update success rate display
+        const successRate = (data.stats.success_rate * 100).toFixed(1);
+        document.querySelector('.accuracy-fill').style.width = successRate + '%';
+        document.getElementById('detection-rate').textContent = successRate + '%';
+
+    } catch (error) {
+        console.error('Error loading mitigation stats:', error);
+    }
+}
+
+// Load effectiveness chart
+async function loadEffectivenessChart() {
+    try {
+        const response = await fetch('/api/mitigation/effectiveness');
+        const data = await response.json();
+
+        if (data.error) {
+            console.error('Error loading effectiveness data:', data.error);
+            return;
+        }
+
+        const ctx = document.getElementById('effectivenessChart').getContext('2d');
+
+        if (effectivenessChart) {
+            effectivenessChart.destroy();
+        }
+
+        effectivenessChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: data.effectiveness_over_time.map(item => new Date(item.date).toLocaleDateString()),
+                datasets: [{
+                    label: 'Effectiveness Score',
+                    data: data.effectiveness_over_time.map(item => item.effectiveness),
+                    borderColor: '#00ff88',
+                    backgroundColor: 'rgba(0, 255, 136, 0.1)',
+                    tension: 0.4,
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: false
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        max: 1,
+                        grid: {
+                            color: 'rgba(255, 255, 255, 0.1)'
+                        },
+                        ticks: {
+                            color: '#ffffff'
+                        }
+                    },
+                    x: {
+                        grid: {
+                            color: 'rgba(255, 255, 255, 0.1)'
+                        },
+                        ticks: {
+                            color: '#ffffff'
+                        }
+                    }
+                }
+            }
+        });
+
+    } catch (error) {
+        console.error('Error loading effectiveness chart:', error);
+    }
+}
+
+// Load attack type distribution chart
+async function loadAttackTypeChart() {
+    try {
+        const response = await fetch('/api/mitigation/stats');
+        const data = await response.json();
+
+        if (data.error) {
+            console.error('Error loading attack type data:', data.error);
+            return;
+        }
+
+        const ctx = document.getElementById('attackTypeChart').getContext('2d');
+
+        if (attackTypeChart) {
+            attackTypeChart.destroy();
+        }
+
+        attackTypeChart = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: data.attack_type_distribution.map(item => item.attack_type),
+                datasets: [{
+                    data: data.attack_type_distribution.map(item => item.count),
+                    backgroundColor: [
+                        '#ff6b6b',
+                        '#4ecdc4',
+                        '#45b7d1',
+                        '#96ceb4',
+                        '#ffeaa7',
+                        '#dda0dd'
+                    ],
+                    borderWidth: 2,
+                    borderColor: '#1a1a1a'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: {
+                            color: '#ffffff',
+                            padding: 20
+                        }
+                    }
+                }
+            }
+        });
+
+    } catch (error) {
+        console.error('Error loading attack type chart:', error);
+    }
+}
+
+// Load active mitigations
+async function loadActiveMitigations() {
+    try {
+        const response = await fetch('/api/mitigation/active');
+        const data = await response.json();
+
+        if (data.error) {
+            console.error('Error loading active mitigations:', data.error);
+            return;
+        }
+
+        const container = document.getElementById('active-mitigations-list');
+
+        if (data.active_mitigations.length === 0) {
+            container.innerHTML = '<div class="data-item empty">No active mitigations</div>';
+            return;
+        }
+
+        container.innerHTML = data.active_mitigations.map(mitigation => `
+            <div class="data-item mitigation-item" onclick="showMitigationDetails(${mitigation.id})">
+                <div class="item-header">
+                    <span class="item-title">${mitigation.attack_type} → ${mitigation.action_type}</span>
+                    <span class="item-badge badge-${mitigation.status}">${mitigation.status}</span>
+                </div>
+                <div class="item-details">
+                    <span>Target: ${mitigation.target}</span>
+                    <span>Severity: ${mitigation.severity_level}</span>
+                </div>
+                <div class="item-time">
+                    ${new Date(mitigation.created_at).toLocaleString()}
+                </div>
+            </div>
+        `).join('');
+
+    } catch (error) {
+        console.error('Error loading active mitigations:', error);
+    }
+}
+
+// Load recent mitigations
+async function loadRecentMitigations() {
+    try {
+        const response = await fetch('/api/mitigation/stats');
+        const data = await response.json();
+
+        if (data.error) {
+            console.error('Error loading recent mitigations:', data.error);
+            return;
+        }
+
+        const container = document.getElementById('recent-mitigations-list');
+
+        if (data.recent_mitigations.length === 0) {
+            container.innerHTML = '<div class="data-item empty">No recent mitigations</div>';
+            return;
+        }
+
+        container.innerHTML = data.recent_mitigations.slice(0, 5).map(mitigation => `
+            <div class="data-item mitigation-item" onclick="showMitigationDetails(${mitigation.id})">
+                <div class="item-header">
+                    <span class="item-title">${mitigation.attack_type} → ${mitigation.action_type}</span>
+                    <span class="item-badge badge-${mitigation.status}">${mitigation.status}</span>
+                </div>
+                <div class="item-details">
+                    <span>Target: ${mitigation.target}</span>
+                    <span>Score: ${mitigation.effectiveness_score ? (mitigation.effectiveness_score * 100).toFixed(1) + '%' : 'N/A'}</span>
+                </div>
+                <div class="item-time">
+                    ${mitigation.executed_at ? new Date(mitigation.executed_at).toLocaleString() : new Date(mitigation.created_at).toLocaleString()}
+                </div>
+            </div>
+        `).join('');
+
+    } catch (error) {
+        console.error('Error loading recent mitigations:', error);
+    }
+}
+
+// Show mitigation details modal
+async function showMitigationDetails(strategyId) {
+    try {
+        const response = await fetch(`/api/mitigation/strategy/${strategyId}`);
+        const data = await response.json();
+
+        if (data.error) {
+            alert('Error loading mitigation details: ' + data.error);
+            return;
+        }
+
+        const strategy = data.strategy;
+        const modal = new bootstrap.Modal(document.getElementById('mitigationModal'));
+        const modalBody = document.getElementById('mitigation-modal-body');
+        const executeBtn = document.getElementById('execute-btn');
+        const rollbackBtn = document.getElementById('rollback-btn');
+
+        modalBody.innerHTML = `
+            <div class="mitigation-details">
+                <div class="detail-row">
+                    <strong>Attack Type:</strong> ${strategy.attack_type}
+                </div>
+                <div class="detail-row">
+                    <strong>Severity:</strong> <span class="badge badge-${strategy.severity_level}">${strategy.severity_level}</span>
+                </div>
+                <div class="detail-row">
+                    <strong>Action:</strong> ${strategy.action_type}
+                </div>
+                <div class="detail-row">
+                    <strong>Target:</strong> ${strategy.target}
+                </div>
+                <div class="detail-row">
+                    <strong>Description:</strong> ${strategy.description}
+                </div>
+                <div class="detail-row">
+                    <strong>Status:</strong> <span class="badge badge-${strategy.status}">${strategy.status}</span>
+                </div>
+                <div class="detail-row">
+                    <strong>Priority:</strong> ${strategy.priority}
+                </div>
+                <div class="detail-row">
+                    <strong>Automated:</strong> ${strategy.is_automated ? 'Yes' : 'No'}
+                </div>
+                ${strategy.effectiveness_score ? `<div class="detail-row"><strong>Effectiveness:</strong> ${(strategy.effectiveness_score * 100).toFixed(1)}%</div>` : ''}
+                ${strategy.execution_result ? `<div class="detail-row"><strong>Result:</strong> ${strategy.execution_result}</div>` : ''}
+                ${strategy.notes ? `<div class="detail-row"><strong>Notes:</strong> ${strategy.notes}</div>` : ''}
+                <div class="detail-row">
+                    <strong>Created:</strong> ${new Date(strategy.created_at).toLocaleString()}
+                </div>
+                ${strategy.executed_at ? `<div class="detail-row"><strong>Executed:</strong> ${new Date(strategy.executed_at).toLocaleString()}</div>` : ''}
+            </div>
+        `;
+
+        // Show/hide action buttons based on status
+        if (strategy.status === 'pending') {
+            executeBtn.style.display = 'inline-block';
+            rollbackBtn.style.display = 'none';
+            executeBtn.onclick = () => executeMitigation(strategy.id);
+        } else if (strategy.status === 'executed') {
+            executeBtn.style.display = 'none';
+            rollbackBtn.style.display = 'inline-block';
+            rollbackBtn.onclick = () => rollbackMitigation(strategy.id);
+        } else {
+            executeBtn.style.display = 'none';
+            rollbackBtn.style.display = 'none';
+        }
+
+        modal.show();
+
+    } catch (error) {
+        console.error('Error loading mitigation details:', error);
+        alert('Error loading mitigation details');
+    }
+}
+
+// Execute mitigation
+async function executeMitigation(strategyId) {
+    if (!confirm('Are you sure you want to execute this mitigation strategy?')) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/mitigation/strategy/${strategyId}/execute`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            alert('Mitigation executed successfully');
+            bootstrap.Modal.getInstance(document.getElementById('mitigationModal')).hide();
+            refreshMitigationDashboard();
+        } else {
+            alert('Error executing mitigation: ' + (data.error || 'Unknown error'));
+        }
+
+    } catch (error) {
+        console.error('Error executing mitigation:', error);
+        alert('Error executing mitigation');
+    }
+}
+
+// Rollback mitigation
+async function rollbackMitigation(strategyId) {
+    if (!confirm('Are you sure you want to rollback this mitigation strategy?')) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/mitigation/strategy/${strategyId}/rollback`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            alert('Mitigation rolled back successfully');
+            bootstrap.Modal.getInstance(document.getElementById('mitigationModal')).hide();
+            refreshMitigationDashboard();
+        } else {
+            alert('Error rolling back mitigation: ' + (data.error || 'Unknown error'));
+        }
+
+    } catch (error) {
+        console.error('Error rolling back mitigation:', error);
+        alert('Error rolling back mitigation');
+    }
+}
+
+// Refresh all dashboard data
+function refreshMitigationDashboard() {
+    loadMitigationStats();
+    loadEffectivenessChart();
+    loadAttackTypeChart();
+    loadActiveMitigations();
+    loadRecentMitigations();
+}
+
+// Individual refresh functions
+function refreshEffectivenessChart() {
+    loadEffectivenessChart();
+}
+
+function refreshActiveMitigations() {
+    loadActiveMitigations();
+}
+</script>
+{% endblock %}

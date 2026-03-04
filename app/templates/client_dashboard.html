@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Client Dashboard{% endblock %}
+
+{% block content %}
+<h1>Federated Client Dashboard</h1>
+<p>Client ID: {{ config.CLIENT_ID }} ({{ config.CLIENT_TYPE or 'unknown' }})</p>
+<div id="metrics">
+    <strong>Model Local Version:</strong> <span id="local_version"></span><br>
+    <strong>Model Global Version:</strong> <span id="global_version"></span><br>
+    <strong>Update Latency (s):</strong> <span id="latency"></span><br>
+</div>
+<h2>Recent Alerts</h2>
+<ul id="alert_list"></ul>
+<h2>Anomaly Scores</h2>
+<canvas id="anomaly_chart" width="600" height="200"></canvas>
+<h2>Mitigation Suggestions</h2>
+<ul id="mitigations"></ul>
+
+<script>
+// open SSE connection
+var evtSource = new EventSource("{{ url_for('client_dashboard.dashboard_stream') }}");
+evtSource.onmessage = function(e) {
+    try {
+        var data = JSON.parse(e.data);
+    } catch (err) { return; }
+    document.getElementById('local_version').innerText = data.model_version_local;
+    document.getElementById('global_version').innerText = data.model_version_global;
+    document.getElementById('latency').innerText = data.update_latency;
+    // alerts
+    var alertList = document.getElementById('alert_list');
+    alertList.innerHTML = '';
+    (data.alerts || []).forEach(function(a) {
+        var li = document.createElement('li');
+        li.textContent = a.attack_type + ' (' + a.severity + ')';
+        alertList.appendChild(li);
+    });
+    // mitigations
+    var mitig = document.getElementById('mitigations');
+    mitig.innerHTML = '';
+    (data.mitigation_suggestions || []).forEach(function(m) {
+        var li = document.createElement('li');
+        li.textContent = m;
+        mitig.appendChild(li);
+    });
+    // anomaly chart not implemented, placeholder
+};
+</script>
+{% endblock %}

@@ -1,0 +1,71 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ai-nids
+  labels:
+    name: ai-nids
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ai-nids-config
+  namespace: ai-nids
+data:
+  FLASK_ENV: "production"
+  LOG_LEVEL: "INFO"
+  FEDERATED_SERVER_ENABLED: "true"
+  PACKET_CAPTURE_ENABLED: "true"
+  CAPTURE_INTERFACE: "eth0"
+  CAPTURE_FILTER: "tcp or udp"
+  MAX_PACKETS_PER_SECOND: "10000"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ai-nids-secrets
+  namespace: ai-nids
+type: Opaque
+data:
+  # Base64 encoded values - replace with actual secrets
+  SECRET_KEY: "Y2hhbmdlLW1lLWluLXByb2R1Y3Rpb24="  # change-me-in-production
+  DB_PASSWORD: "bmlkcy1wYXNzd29yZA=="  # nids-password
+  POSTGRES_PASSWORD: "bmlkcy1wYXNzd29yZA=="  # nids-password
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+  namespace: ai-nids
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 50Gi
+  storageClassName: standard
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-pvc
+  namespace: ai-nids
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: standard
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: models-pvc
+  namespace: ai-nids
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 20Gi
+  storageClassName: standard

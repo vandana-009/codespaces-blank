@@ -1,0 +1,90 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: federated-client
+  namespace: ai-nids
+  labels:
+    app: federated-client
+spec:
+  replicas: 3  # Scale this based on your needs
+  selector:
+    matchLabels:
+      app: federated-client
+  template:
+    metadata:
+      labels:
+        app: federated-client
+    spec:
+      hostNetwork: true  # Required for packet capture
+      dnsPolicy: ClusterFirstWithHostNet
+      containers:
+      - name: federated-client
+        image: ai-nids:latest
+        command: ["python", "federated/realtime_federated_client.py"]
+        securityContext:
+          privileged: true  # Required for packet capture
+          capabilities:
+            add: ["NET_RAW", "NET_ADMIN"]
+        env:
+        - name: FLASK_ENV
+          valueFrom:
+            configMapKeyRef:
+              name: ai-nids-config
+              key: FLASK_ENV
+        - name: LOG_LEVEL
+          valueFrom:
+            configMapKeyRef:
+              name: ai-nids-config
+              key: LOG_LEVEL
+        - name: PACKET_CAPTURE_ENABLED
+          valueFrom:
+            configMapKeyRef:
+              name: ai-nids-config
+              key: PACKET_CAPTURE_ENABLED
+        - name: CAPTURE_INTERFACE
+          valueFrom:
+            configMapKeyRef:
+              name: ai-nids-config
+              key: CAPTURE_INTERFACE
+        - name: CAPTURE_FILTER
+          valueFrom:
+            configMapKeyRef:
+              name: ai-nids-config
+              key: CAPTURE_FILTER
+        - name: MAX_PACKETS_PER_SECOND
+          valueFrom:
+            configMapKeyRef:
+              name: ai-nids-config
+              key: MAX_PACKETS_PER_SECOND
+        - name: FEDERATED_SERVER_URL
+          value: "http://federated-server:5001"
+        volumeMounts:
+        - name: models-storage
+          mountPath: /app/data/saved_models
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        livenessProbe:
+          exec:
+            command:
+              - python
+              - -c
+              - "import requests; requests.get('http://federated-server:5001/health')"
+          initialDelaySeconds: 60
+          periodSeconds: 30
+        readinessProbe:
+          exec:
+            command:
+              - python
+              - -c
+              - "import requests; requests.get('http://federated-server:5001/health')"
+          initialDelaySeconds: 30
+          periodSeconds: 10
+      volumes:
+      - name: models-storage
+        persistentVolumeClaim:
+          claimName: models-pvc

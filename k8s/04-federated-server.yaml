@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: federated-server
+  namespace: ai-nids
+  labels:
+    app: federated-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: federated-server
+  template:
+    metadata:
+      labels:
+        app: federated-server
+    spec:
+      containers:
+      - name: federated-server
+        image: ai-nids:latest
+        command: ["python", "federated/federated_server.py"]
+        ports:
+        - containerPort: 5001
+        env:
+        - name: FLASK_ENV
+          valueFrom:
+            configMapKeyRef:
+              name: ai-nids-config
+              key: FLASK_ENV
+        - name: LOG_LEVEL
+          valueFrom:
+            configMapKeyRef:
+              name: ai-nids-config
+              key: LOG_LEVEL
+        - name: SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: ai-nids-secrets
+              key: SECRET_KEY
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ai-nids-secrets
+              key: DB_PASSWORD
+        volumeMounts:
+        - name: models-storage
+          mountPath: /app/data/saved_models
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 5001
+          initialDelaySeconds: 60
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 5001
+          initialDelaySeconds: 30
+          periodSeconds: 10
+      volumes:
+      - name: models-storage
+        persistentVolumeClaim:
+          claimName: models-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: federated-server
+  namespace: ai-nids
+  labels:
+    app: federated-server
+spec:
+  ports:
+  - port: 5001
+    targetPort: 5001
+  selector:
+    app: federated-server
+  type: ClusterIP

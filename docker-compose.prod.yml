@@ -1,0 +1,310 @@
+# AI-NIDS Real-Time Production Deployment
+# Complete federated learning system with real-time packet capture
+
+version: '3.8'
+
+services:
+  # ========== Main AI-NIDS Server ==========
+  ai-nids-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ai-nids-server
+    restart: unless-stopped
+    ports:
+      - "5000:8000"
+    environment:
+      - FLASK_ENV=production
+      - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
+      - DATABASE_URL=postgresql://nids:${DB_PASSWORD:-nids_password}@db:5432/ai_nids
+      - REDIS_URL=redis://redis:6379/0
+      - FEDERATED_SERVER_ENABLED=true
+      - PACKET_CAPTURE_ENABLED=true
+      - LOG_LEVEL=INFO
+    volumes:
+      - ./models:/app/models
+      - ./data:/app/data
+      - ./logs:/app/logs
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+      - nids-network
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    command: ["python", "-m", "realtime.orchestrator"]
+
+  # ========== Federated Learning Server ==========
+  federated-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: federated-server
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - FLASK_ENV=production
+      - DATABASE_URL=postgresql://nids:${DB_PASSWORD:-nids_password}@db:5432/ai_nids
+      - REDIS_URL=redis://redis:6379/0
+      - FEDERATED_PORT=8080
+      - MIN_CLIENTS_PER_ROUND=3
+      - ROUND_TIMEOUT=600
+      - LOG_LEVEL=INFO
+    volumes:
+      - ./models:/app/models
+      - ./federated_models:/app/federated_models
+    depends_on:
+      - db
+      - redis
+    networks:
+      - nids-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    command: ["python", "-c", "from federated.federated_server import FederatedServer; server = FederatedServer(); server.start()"]
+
+  # ========== Real-Time Packet Capture Service ==========
+  packet-capture:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: packet-capture
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql://nids:${DB_PASSWORD:-nids_password}@db:5432/ai_nids
+      - REDIS_URL=redis://redis:6379/0
+      - CAPTURE_INTERFACE=eth0
+      - CAPTURE_FILTER=tcp or udp
+      - MAX_PACKETS_PER_SECOND=10000
+      - LOG_LEVEL=INFO
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      - db
+      - redis
+      - ai-nids-server
+    networks:
+      - nids-network
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun
+    command: ["python", "-c", "
+from collectors.live_capture import LiveCaptureManager, DetectionCallback
+from detection.detector import DetectionEngine
+from detection.alert_manager import AlertManager, create_alert_manager
+from app import create_app
+import time
+
+app = create_app()
+with app.app_context():
+    detector = DetectionEngine()
+    alert_manager = create_alert_manager(db_session=None)  # Will use global session
+    callback = DetectionCallback(detector=detector, alert_manager=alert_manager)
+    capture = LiveCaptureManager(detection_callback=callback)
+    capture.start_capture(interface='eth0', filter_str='tcp or udp', max_packets_per_second=10000)
+    while True:
+        time.sleep(1)
+"]
+
+  # ========== Federated Client 1 ==========
+  federated-client-1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: federated-client-1
+    restart: unless-stopped
+    environment:
+      - CLIENT_ID=client-001
+      - SERVER_URL=http://federated-server:8080
+      - ORGANIZATION=Office-A
+      - SUBNET=192.168.1.0/24
+      - CAPTURE_INTERFACE=eth0
+      - LOG_LEVEL=INFO
+    volumes:
+      - ./client_data_1:/app/client_data
+    depends_on:
+      - federated-server
+    networks:
+      - nids-network
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun
+    command: ["python", "-m", "federated.realtime_federated_client", "client-001", "http://federated-server:8080", "eth0"]
+    profiles:
+      - federated
+
+  # ========== Federated Client 2 ==========
+  federated-client-2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: federated-client-2
+    restart: unless-stopped
+    environment:
+      - CLIENT_ID=client-002
+      - SERVER_URL=http://federated-server:8080
+      - ORGANIZATION=Office-B
+      - SUBNET=192.168.2.0/24
+      - CAPTURE_INTERFACE=eth0
+      - LOG_LEVEL=INFO
+    volumes:
+      - ./client_data_2:/app/client_data
+    depends_on:
+      - federated-server
+    networks:
+      - nids-network
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun
+    command: ["python", "-m", "federated.realtime_federated_client", "client-002", "http://federated-server:8080", "eth0"]
+    profiles:
+      - federated
+
+  # ========== Federated Client 3 ==========
+  federated-client-3:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: federated-client-3
+    restart: unless-stopped
+    environment:
+      - CLIENT_ID=client-003
+      - SERVER_URL=http://federated-server:8080
+      - ORGANIZATION=Branch-Office
+      - SUBNET=192.168.3.0/24
+      - CAPTURE_INTERFACE=eth0
+      - LOG_LEVEL=INFO
+    volumes:
+      - ./client_data_3:/app/client_data
+    depends_on:
+      - federated-server
+    networks:
+      - nids-network
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun
+    command: ["python", "-m", "federated.realtime_federated_client", "client-003", "http://federated-server:8080", "eth0"]
+    profiles:
+      - federated
+
+  # ========== PostgreSQL Database ==========
+  db:
+    image: postgres:15-alpine
+    container_name: ai-nids-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=nids
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-nids_password}
+      - POSTGRES_DB=ai_nids
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./deployment/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "5432:5432"
+    networks:
+      - nids-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nids -d ai_nids"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ========== Redis Cache ==========
+  redis:
+    image: redis:7-alpine
+    container_name: ai-nids-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - nids-network
+
+  # ========== Nginx Reverse Proxy ==========
+  nginx:
+    image: nginx:alpine
+    container_name: ai-nids-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deployment/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./deployment/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - ai-nids-server
+    networks:
+      - nids-network
+
+  # ========== Monitoring & Metrics ==========
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: ai-nids-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./deployment/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    networks:
+      - nids-network
+    profiles:
+      - monitoring
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: ai-nids-grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - nids-network
+    profiles:
+      - monitoring
+
+# ========== Networks ==========
+networks:
+  nids-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+# ========== Volumes ==========
+volumes:
+  postgres-data:
+    driver: local
+  redis-data:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
