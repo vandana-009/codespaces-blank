@@ -44,11 +44,28 @@ def push_round():
     accuracy = data.get('accuracy') or 0.0
     model_version = data.get('model_version') or data.get('model_hash')
 
+    # optional metadata that clients may include
+    server_id = data.get('server_id')
+    aggregation_strategy = data.get('aggregation_strategy')
+
     if round_num is None:
         return jsonify({'error': 'round number required'}), 400
 
     try:
-        from app.routes.federation_dashboard import record_round_completion
+        from app.routes.federation_dashboard import record_round_completion, update_federation_metrics
+
+        # if the server posts a server_id (and maybe strategy) make sure the
+        # dashboard state stays in-sync; this fixes the case where the
+        # federation server runs in a distinct process and never imported the
+        # dashboard module directly.
+        if server_id or aggregation_strategy:
+            kwargs = {}
+            if server_id:
+                kwargs['server_id'] = server_id
+            if aggregation_strategy:
+                kwargs['aggregation_strategy'] = aggregation_strategy
+            update_federation_metrics(**kwargs)
+
         record_round_completion(int(round_num), participants, int(samples), float(loss), float(accuracy), model_version)
         return jsonify({'status': 'ok'}), 200
     except Exception as e:

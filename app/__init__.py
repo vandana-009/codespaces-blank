@@ -145,7 +145,8 @@ def register_blueprints(app):
     
     # optionally register client-local dashboard if running as a federated client
     client_bp = None
-    if app.config.get('CLIENT_ID'):
+    client_flag = app.config.get('CLIENT_ID') or os.environ.get('CLIENT_ID')
+    if client_flag:
         try:
             from app.routes.client_dashboard import client_dashboard_bp
             client_bp = client_dashboard_bp

@@ -216,10 +216,18 @@ def federation_dashboard():
 
 @federation_dashboard_bp.route('/api/metrics')
 def get_metrics():
-    """Get current federation metrics."""
+    """Get current federation metrics.
+
+    ``server_id`` used to occasionally surface as ``null`` when the server
+    process was running separately from the Flask app.  The caller normally
+    cares only about knowing whether or not a value is available, so we
+    provide an explicit ``"unknown"`` string rather than a bare null to make
+    it easier to read at the CLI and to avoid confusion in templates.
+    """
     with _federation_lock:
+        sid = _federation_metrics['server_id']
         return jsonify({
-            'server_id': _federation_metrics['server_id'],
+            'server_id': sid if sid is not None else 'unknown',
             'current_round': _federation_metrics['current_round'],
             'connected_clients': _federation_metrics['connected_clients'],
             'registered_clients': _federation_metrics['registered_clients'],

@@ -4,6 +4,11 @@ Federation Metrics Bridge
 Integrates FederatedServer with the Federation Dashboard.
 """
 
+# we may need to peek at the running server when pushing metrics so that the
+# HTTP payload can include the server identifier.  import lazily to avoid
+# circular import problems during server creation.
+from .federated_server import get_global_server
+
 def initialize_federation_dashboard_metrics(server):
     """Initialize federation dashboard with server data."""
     try:
@@ -80,7 +85,16 @@ def notify_client_connected(client_id, org, subnet):
 
 
 def notify_round_completed(round_num, participants, samples, loss, accuracy, model_version):
-    """Notify dashboard of completed round."""
+    """Notify dashboard of completed round.
+
+    When running the server in a separate process the bridge uses the HTTP
+    ingest endpoints.  Previously the payload only included round-specific
+    stats which meant the dashboard never learned the server's identifier
+    or aggregation strategy.  As a result `GET /federation/api/metrics`
+    could return ``server_id: null`` which confused operators.  We now send
+    the server_id with every push so the dashboard can stay in-sync even
+    when the two processes are isolated.
+    """
     try:
         from app.routes.federation_dashboard import record_round_completion
         record_round_completion(
@@ -91,16 +105,22 @@ def notify_round_completed(round_num, participants, samples, loss, accuracy, mod
             import os
             import requests
             dashboard_url = os.environ.get('DASHBOARD_PUSH_URL', 'http://localhost:5000')
+            # include server_id if available in the sender context
+            payload = {
+                'round': round_num,
+                'participants': participants,
+                'samples': samples,
+                'loss': loss,
+                'accuracy': accuracy,
+                'model_version': model_version
+            }
+            server = get_global_server()
+            if server and hasattr(server, 'config'):
+                payload['server_id'] = server.config.server_id
+                payload['aggregation_strategy'] = server.config.aggregation_strategy.value
             requests.post(
                 f"{dashboard_url.rstrip('/')}/api/federation/push-round",
-                json={
-                    'round': round_num,
-                    'participants': participants,
-                    'samples': samples,
-                    'loss': loss,
-                    'accuracy': accuracy,
-                    'model_version': model_version
-                },
+                json=payload,
                 timeout=3
             )
         except Exception:

@@ -111,13 +111,12 @@ class ClientMetricsReporter:
     def submit_metrics_to_server(self):
         """Submit current metrics to the federated server."""
         try:
-            # Prefer the Flask ingest endpoint when available so the dashboard
-            # (which runs on port 5000) can be updated even if the federated
-            # server process is separate and GLOBAL_SERVER is not set.
+            # Try dashboard ingest endpoint first (dashboard may run on 5000).
+            dashboard_url = os.environ.get('DASHBOARD_PUSH_URL', 'http://localhost:5000').rstrip('/')
             posted = False
             try:
                 resp = requests.post(
-                    f"{self.server_url.rstrip('/')}/api/federation/push-update",
+                    f"{dashboard_url}/api/federation/push-update",
                     json={
                         'client_id': self.client_id,
                         'samples_contributed': self.total_samples,
@@ -128,6 +127,9 @@ class ClientMetricsReporter:
                 )
                 resp.raise_for_status()
                 posted = True
+                logger.info(
+                    f"✓ Metrics pushed to dashboard ingest | Round: {self.round_counter}, Samples: {self.total_samples}, Loss: {self.avg_loss:.4f}, Accuracy: {self.avg_accuracy:.4f}"
+                )
             except Exception:
                 # Fallback to the federated server submit endpoint
                 response = requests.post(
@@ -144,13 +146,6 @@ class ClientMetricsReporter:
                     timeout=5
                 )
                 response.raise_for_status()
-            response.raise_for_status()
-            if posted:
-                logger.info(
-                    f"✓ Metrics pushed to ingest endpoint | Round: {self.round_counter}, Samples: {self.total_samples}, Loss: {self.avg_loss:.4f}, Accuracy: {self.avg_accuracy:.4f}"
-                )
-            else:
-                result = response.json()
                 logger.info(
                     f"✓ Metrics submitted to federated server | Round: {self.round_counter}, Samples: {self.total_samples}, Loss: {self.avg_loss:.4f}, Accuracy: {self.avg_accuracy:.4f}"
                 )

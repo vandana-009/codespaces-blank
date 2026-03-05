@@ -93,11 +93,19 @@ def get_metrics():
     
     import statistics
     
+    # compute averages only when we have data; previously the code returned
+    # a default of 0.5 which made a brand-new client look as though it was
+    # performing at '50% accuracy' even though no training had happened.  A
+    # null value is clearer for dashboard visualisations and for users
+    # inspecting the JSON directly.
+    avg_loss = statistics.mean(anomaly_scores) if anomaly_scores else None
+    avg_accuracy = (1.0 - avg_loss) if avg_loss is not None else None
+
     metrics = {
         'total_samples': len(alerts),
         'total_anomalies': len(anomaly_scores),
-        'avg_loss': statistics.mean(anomaly_scores) if anomaly_scores else 0.5,
-        'avg_accuracy': 1.0 - (statistics.mean(anomaly_scores) if anomaly_scores else 0.5),
+        'avg_loss': avg_loss,
+        'avg_accuracy': avg_accuracy,
         'model_version_local': data.get('model_version_local'),
         'model_version_global': data.get('model_version_global'),
         'update_latency': data.get('update_latency'),

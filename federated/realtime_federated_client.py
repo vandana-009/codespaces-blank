@@ -125,7 +125,8 @@ class RealtimeFederatedClient:
             detector=self.detection_engine,
             data_collector=self._collect_sample
         )
-        self.capture_manager = LiveCaptureManager(detection_callback=detection_callback)
+        self.capture_manager = LiveCapture()
+        self.capture_manager.add_callback(detection_callback)
 
         # Initialize local model
         self.model = LocalModel()
