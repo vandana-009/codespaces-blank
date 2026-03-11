@@ -81,6 +81,8 @@ class ClientMetricsReporter:
             self.total_samples = metrics.get('total_samples', self.total_samples)
             self.avg_loss = metrics.get('avg_loss', self.avg_loss)
             self.avg_accuracy = metrics.get('avg_accuracy', self.avg_accuracy)
+            self.total_anomalies = metrics.get('total_anomalies', getattr(self, 'total_anomalies', 0))
+            self.last_alerts = metrics.get('last_alerts', getattr(self, 'last_alerts', []))
             
             logger.debug(f"Collected metrics from local client: {metrics}")
             return True
@@ -121,7 +123,12 @@ class ClientMetricsReporter:
                         'client_id': self.client_id,
                         'samples_contributed': self.total_samples,
                         'rounds_participated': self.round_counter,
-                        'status': 'connected'
+                        'status': 'connected',
+                        # mirror any useful metrics so the dashboard can render them
+                        'avg_loss': float(self.avg_loss),
+                        'avg_accuracy': float(self.avg_accuracy),
+                        'total_anomalies': getattr(self, 'total_anomalies', 0),
+                        'last_alerts': getattr(self, 'last_alerts', []),
                     },
                     timeout=5
                 )

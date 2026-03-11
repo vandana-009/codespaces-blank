@@ -38,7 +38,7 @@ function log_error() {
 function cleanup() {
     log_warning "Shutting down federation system..."
     pkill -f "python.*federated_server" || true
-    pkill -f "python.*run.py" || true
+    pkill -f "python.*application.py" || true
     pkill -f "python.*client_metrics_reporter" || true
     sleep 1
     log_success "All processes stopped"
@@ -114,7 +114,9 @@ for i in 1 2 3; do
     if [ $i -eq 3 ]; then CLIENT_NAME="University"; ORG="Education"; fi
     
     log_info "  Starting $CLIENT_NAME instance (port $CLIENT_PORT)..."
-    python run.py --port $CLIENT_PORT --client-id "$CLIENT_ID" > /tmp/client_$i.log 2>&1 &
+    # set environment variables and launch via new entrypoint
+    CLIENT_ID="$CLIENT_ID" CLIENT_PORT=$CLIENT_PORT python application.py \
+        --port $CLIENT_PORT --client-id "$CLIENT_ID" > /tmp/client_$i.log 2>&1 &
     CLIENT_PID=$!
     sleep 2
     
@@ -164,7 +166,7 @@ log_info "Starting main Flask app on port 5000..."
 # run in production mode to disable the debug reloader, which previously
 # caused the server to restart mid-demo and produced confusing 404s.
 if ! lsof -Pi :5000 -sTCP:LISTEN -t >/dev/null 2>&1; then
-    python run.py --port 5000 --production > /tmp/dashboard.log 2>&1 &
+    FLASK_ENV=production python application.py --port 5000 > /tmp/dashboard.log 2>&1 &
     DASHBOARD_PID=$!
     sleep 3
     
@@ -184,6 +186,17 @@ log_info "=================================================="
 log_success "Federation System is RUNNING"
 log_info "=================================================="
 log_info ""
+
+# Forward ports for external access
+log_info "Forwarding ports for external access..."
+gh codespace ports forward 8765:8765 || log_warning "Port 8765 forwarding failed (may already be forwarded)"
+gh codespace ports forward 5000:5000 || log_warning "Port 5000 forwarding failed (may already be forwarded)"
+gh codespace ports forward 8001:8001 || log_warning "Port 8001 forwarding failed (may already be forwarded)"
+gh codespace ports forward 8002:8002 || log_warning "Port 8002 forwarding failed (may already be forwarded)"
+gh codespace ports forward 8003:8003 || log_warning "Port 8003 forwarding failed (may already be forwarded)"
+log_success "Port forwarding completed"
+log_info ""
+
 log_success "✓ Data Status:"
 log_info "  • Hospital: 300 flows, 30 alerts"
 log_info "  • Bank: 300 flows, 30 alerts"

@@ -15,19 +15,17 @@ from flask import Blueprint, render_template, jsonify, request
 from flask_login import login_required
 import logging
 from datetime import datetime
+import torch
 
 logger = logging.getLogger(__name__)
 
 federated_bp = Blueprint('federated', __name__, url_prefix='/api/federated')
 
-# Global server instance (will be set when server starts)
-_fed_server = None
-
-
-def set_federation_server(server):
-    """Set the global federation server instance."""
-    global _fed_server
-    _fed_server = server
+# Global server instance from federated server module
+def get_federated_server():
+    """Get the global federated server instance."""
+    from federated.federated_server import get_global_server
+    return get_global_server()
 
 
 # ==================== Client Registration (New Real-Time) ====================
@@ -95,6 +93,11 @@ def register_client_real_time():
         )
         db.session.add(fed_client)
         db.session.commit()
+        
+        # Also register with federated server if available
+        server = get_federated_server()
+        if server:
+            server.register_client(result['client_id'], organization, subnet, metadata)
         
         logger.info(f"Client registered: {result['client_id']} for {organization}")
         
@@ -309,7 +312,8 @@ def distribute_model_real_time():
 @login_required
 def federation_status():
     """Get current federation status."""
-    if _fed_server is None:
+    server = get_federated_server()
+    if server is None:
         return jsonify({
             'error': 'Federation server not initialized',
             'initialized': False
@@ -317,20 +321,21 @@ def federation_status():
     
     return jsonify({
         'initialized': True,
-        'server_id': _fed_server.config.server_id,
-        'current_round': _fed_server.current_round,
-        'registered_clients': _fed_server.get_client_count(),
-        'model_version': _fed_server.global_model_version,
-        'rounds_completed': len(_fed_server.round_history),
-        'last_round_time': _fed_server.last_round_time.isoformat() if _fed_server.last_round_time else None
+        'server_id': server.config.server_id,
+        'current_round': server.current_round,
+        'registered_clients': server.get_client_count(),
+        'model_version': server.global_model_version,
+        'rounds_completed': len(server.round_history),
+        'last_round_time': server.last_round_time.isoformat() if server.last_round_time else None
     })
 
 
 @federated_bp.route('/health', methods=['GET'])
 def federation_health():
     """Health check for federation server."""
+    server = get_federated_server()
     return jsonify({
-        'status': 'ok' if _fed_server else 'not_initialized',
+        'status': 'ok' if server else 'not_initialized',
         'timestamp': __import__('datetime').datetime.utcnow().isoformat()
     })
 
@@ -341,11 +346,12 @@ def federation_health():
 @login_required
 def list_clients():
     """List all registered clients with their stats."""
-    if _fed_server is None:
+    server = get_federated_server()
+    if server is None:
         return jsonify([])
     
     clients = []
-    for client_id, client_info in _fed_server.registered_clients.items():
+    for client_id, client_info in server.registered_clients.items():
         clients.append({
             'id': client_id,
             'organization': client_info.organization,
@@ -366,10 +372,11 @@ def list_clients():
 @login_required
 def get_client(client_id):
     """Get details for a specific client."""
-    if _fed_server is None:
+    server = get_federated_server()
+    if server is None:
         return jsonify({'error': 'Server not initialized'}), 503
     
-    client_info = _fed_server.registered_clients.get(client_id)
+    client_info = server.clients.get(client_id)
     if not client_info:
         return jsonify({'error': 'Client not found'}), 404
     
@@ -393,10 +400,11 @@ def get_client(client_id):
 @login_required
 def remove_client(client_id):
     """Remove a client from federation (admin only)."""
-    if _fed_server is None:
+    server = get_federated_server()
+    if server is None:
         return jsonify({'error': 'Server not initialized'}), 503
     
-    if _fed_server.remove_client(client_id):
+    if server.remove_client(client_id):
         return jsonify({'success': True, 'message': f'Client {client_id} removed'})
     else:
         return jsonify({'error': 'Client not found'}), 404
@@ -408,13 +416,14 @@ def remove_client(client_id):
 @login_required
 def get_round_history():
     """Get federation round history."""
-    if _fed_server is None:
+    server = get_federated_server()
+    if server is None:
         return jsonify([])
     
     limit = request.args.get('limit', 50, type=int)
     rounds = []
     
-    for round_info in _fed_server.round_history[-limit:]:
+    for round_info in server.round_history[-limit:]:
         rounds.append({
             'round': round_info.round_number,
             'started': round_info.started_at.isoformat(),
@@ -434,12 +443,13 @@ def get_round_history():
 @login_required
 def get_round(round_num):
     """Get details for a specific round."""
-    if _fed_server is None:
+    server = get_federated_server()
+    if server is None:
         return jsonify({'error': 'Server not initialized'}), 503
     
     # Find round in history
     round_info = None
-    for r in _fed_server.round_history:
+    for r in server.round_history:
         if r.round_number == round_num:
             round_info = r
             break
@@ -456,7 +466,8 @@ def get_round(round_num):
 @login_required
 def start_federation():
     """Start federated learning rounds."""
-    if _fed_server is None:
+    server = get_federated_server()
+    if server is None:
         return jsonify({'error': 'Server not initialized'}), 503
     
     num_rounds = request.json.get('rounds', 100) if request.json else 100
@@ -465,7 +476,7 @@ def start_federation():
         # Start in background thread
         import threading
         thread = threading.Thread(
-            target=_fed_server.start_round_scheduler,
+            target=server.start_round_scheduler,
             args=(num_rounds,),
             daemon=True
         )
@@ -483,11 +494,12 @@ def start_federation():
 @login_required
 def stop_federation():
     """Stop federated learning."""
-    if _fed_server is None:
+    server = get_federated_server()
+    if server is None:
         return jsonify({'error': 'Server not initialized'}), 503
     
     try:
-        _fed_server.stop()
+        server.stop()
         return jsonify({'success': True, 'message': 'Federation stopped'})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 400
@@ -499,27 +511,28 @@ def stop_federation():
 @login_required
 def federation_stats():
     """Get comprehensive federation statistics."""
-    if _fed_server is None:
+    server = get_federated_server()
+    if server is None:
         return jsonify({})
     
     total_samples = sum(
         c.total_samples_contributed
-        for c in _fed_server.registered_clients.values()
+        for c in server.registered_clients.values()
     )
     
     avg_reliability = (
-        sum(c.reliability_score for c in _fed_server.registered_clients.values()) /
-        max(1, len(_fed_server.registered_clients))
+        sum(c.reliability_score for c in server.registered_clients.values()) /
+        max(1, len(server.registered_clients))
     )
     
     return jsonify({
-        'total_clients': _fed_server.get_client_count(),
+        'total_clients': server.get_client_count(),
         'total_samples': total_samples,
-        'rounds_completed': len(_fed_server.round_history),
-        'current_round': _fed_server.current_round,
-        'model_version': _fed_server.global_model_version,
+        'rounds_completed': len(server.round_history),
+        'current_round': server.current_round,
+        'model_version': server.global_model_version,
         'avg_client_reliability': round(avg_reliability, 3),
-        'aggregation_strategy': _fed_server.config.aggregation_strategy.value
+        'aggregation_strategy': server.config.aggregation_strategy.value
     })
 
 
@@ -527,11 +540,12 @@ def federation_stats():
 @login_required
 def federation_metrics():
     """Get detailed metrics for federation."""
-    if _fed_server is None:
+    server = get_federated_server()
+    if server is None:
         return jsonify({})
     
     # Aggregate metrics from round history
-    if not _fed_server.round_history:
+    if not server.round_history:
         return jsonify({
             'rounds': [],
             'avg_accuracy': 0,
@@ -543,7 +557,7 @@ def federation_metrics():
     accuracies = []
     losses = []
     
-    for round_info in _fed_server.round_history[-100:]:  # Last 100 rounds
+    for round_info in server.round_history[-100:]:  # Last 100 rounds
         rounds.append({
             'round': round_info.round_number,
             'accuracy': round_info.avg_accuracy,
@@ -562,6 +576,93 @@ def federation_metrics():
         'best_accuracy': max(accuracies) if accuracies else 0,
         'best_loss': min(losses) if losses else float('inf')
     })
+
+
+# ==================== Federation API Endpoints (for clients) ====================
+
+@federated_bp.route('/api/model', methods=['GET'])
+def get_global_model():
+    """Get the current global model state."""
+    server = get_federated_server()
+    if server is None:
+        return jsonify({'error': 'Server not initialized'}), 503
+    
+    try:
+        model_state = server.get_global_model()
+        # Convert tensors to lists for JSON serialization
+        model_dict = {k: v.cpu().tolist() for k, v in model_state.items()}
+        
+        return jsonify(model_dict)
+    except Exception as e:
+        logger.exception("Error getting global model")
+        return jsonify({'error': str(e)}), 500
+
+
+@federated_bp.route('/api/update', methods=['POST'])
+def submit_federated_update():
+    """Submit a federated learning update from a client."""
+    server = get_federated_server()
+    if server is None:
+        return jsonify({'error': 'Server not initialized'}), 503
+    
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No JSON data provided'}), 400
+        
+        client_id = data.get('client_id')
+        gradients_data = data.get('gradients', {})
+        samples = data.get('samples', 0)
+        loss = data.get('loss', 0.0)
+        accuracy = data.get('accuracy', 0.0)
+        
+        if not client_id:
+            return jsonify({'error': 'client_id required'}), 400
+        
+        # Convert gradients back to tensors
+        gradients = {k: torch.tensor(v) for k, v in gradients_data.items()}
+        
+        # Prepare metrics
+        metrics = {
+            'samples': samples,
+            'loss': loss,
+            'accuracy': accuracy
+        }
+        
+        # Register client if not already registered
+        if client_id not in server.clients:
+            server.register_client(client_id, organization='unknown', subnet='0.0.0.0/0')
+        
+        # Submit update
+        success = server.submit_update(client_id, gradients, metrics)
+        
+        if success:
+            # Try to aggregate if we have enough updates
+            if len(server.round_updates) >= server.config.min_clients_per_round:
+                server.aggregate_round()
+            
+            return jsonify({'success': True, 'message': 'Update accepted'})
+        else:
+            return jsonify({'error': 'Update rejected'}), 400
+            
+    except Exception as e:
+        logger.exception("Error submitting federated update")
+        return jsonify({'error': str(e)}), 500
+
+
+@federated_bp.route('/api/metrics', methods=['GET'])
+def get_federation_metrics():
+    """Get current federation metrics."""
+    server = get_federated_server()
+    if server is None:
+        return jsonify({'error': 'Server not initialized'}), 503
+    
+    try:
+        stats = server.get_stats()
+        return jsonify(stats)
+    except Exception as e:
+        logger.exception("Error getting federation metrics")
+        return jsonify({'error': str(e)}), 500
 
 
 # ==================== Dashboard Template Route ====================

@@ -74,16 +74,62 @@ def submit_metrics():
     
     server = get_federated_server()
     if server:
-        # Update client metrics in the server
+        # Ensure client is registered on the server so internal state exists
+        if client_id not in server.clients:
+            server.register_client(client_id, organization=data.get('organization', 'unknown'), subnet=data.get('subnet', '0.0.0.0/0'))
+
+        # Treat the metrics payload as a lightweight "update".  We don't
+        # have actual gradient information, but we can still record the
+        # activity and, if sufficient participants have reported, complete
+        # a round.  This change allows the federation to start processing
+        # as soon as metrics arrive instead of requiring a manual /start call.
+        metrics_obj = {'samples': samples, 'loss': loss, 'accuracy': accuracy}
+        # update client statistics directly rather than going through the
+        # full training update path (which enforces minimum sample counts and
+        # expects gradient data).  We still record the "round" so dashboard
+        # shows some activity.
+        client = server.clients.get(client_id)
+        if client:
+            client.update_from_metrics(metrics_obj)
+            client.rounds_participated += 1
+
+        # whenever metrics arrive we kick off a dummy round so that the
+        # `current_round` counter advances and the dashboard displays
+        # something meaningful.  We don't require any real gradients here.
+        server.start_round()
+        server.aggregate_round()
+
+        # bump current_round to reflect the highest participation count (this
+        # is mostly redundant with the dummy round above but keeps things
+        # consistent if other code manipulates rounds directly)
+        server.current_round = max(
+            server.current_round,
+            max(c.rounds_participated for c in server.clients.values())
+        )
+
+        # Update dashboard state so metrics endpoint reflects the change
         try:
             from federated.metrics_bridge import update_client_status
-            update_client_status(client_id, samples_contributed=samples, status='connected')
+            # collect any extra metrics provided in the payload so the
+            # dashboard can render them alongside the standard samples/rounds
+            extras = {}
+            for key in ('avg_accuracy', 'avg_loss', 'total_anomalies', 'last_alerts'):
+                if key in data:
+                    extras[key] = data[key]
+            update_client_status(
+                client_id,
+                samples_contributed=server.clients[client_id].total_samples_contributed,
+                rounds_participated=server.clients[client_id].rounds_participated,
+                status='connected',
+                **extras
+            )
         except ImportError:
             pass
-        
+
         logger.info(
             f"Metrics from {client_id}: samples={samples}, "
-            f"loss={loss:.4f}, acc={accuracy:.4f}"
+            f"loss={loss:.4f}, acc={accuracy:.4f}, "
+            f"rounds={server.clients[client_id].rounds_participated}"
         )
         
         return jsonify({

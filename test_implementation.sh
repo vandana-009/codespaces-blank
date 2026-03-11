@@ -56,7 +56,7 @@ test_endpoint() {
 echo "Checking if server is running at $BASE_URL..."
 if ! curl -s "$BASE_URL/api/federated/health" > /dev/null 2>&1; then
     echo -e "${RED}ERROR: Server is not running at $BASE_URL${NC}"
-    echo "Start the server with: python run.py"
+    echo "Start the server with: python application.py or use scripts/start_federation_real_data.sh"
     exit 1
 fi
 echo -e "${GREEN}✓ Server is running${NC}"

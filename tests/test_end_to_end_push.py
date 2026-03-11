@@ -107,3 +107,8 @@ def test_reporter_pushes_to_ingest(app_setup, monkeypatch):
     cinfo = clients[0]
     assert cinfo['samples_contributed'] == 123
     assert cinfo['rounds_participated'] >= 0
+    # the fake local metrics included accuracy/loss/anomalies; ensure they
+    # were copied through into the dashboard record
+    assert cinfo.get('avg_accuracy') == 0.75
+    assert cinfo.get('avg_loss') == 0.25
+    assert cinfo.get('total_anomalies') == 2

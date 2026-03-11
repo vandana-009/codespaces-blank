@@ -21,25 +21,39 @@ capture, detection, mitigation, and model training.  A lightweight Flask UI
 
 ### Running a Client
 
-Start a client node with environment variables or CLI flags:
+New deployments use the lightweight entrypoint `application.py` rather than
+`run.py`.  You can still pass the same configuration options via CLI or
+environment variables.  The easiest way to launch a set of clients and the
+server is to use the provided script:
 
 ```bash
-CLIENT_ID=hospital1 CLIENT_TYPE=hospital python run.py --port 8001 \
-    --client-id hospital1 --client-type hospital \
-    --federated-server ws://localhost:8765
+./scripts/start_federation_real_data.sh
 ```
 
-The same command (with different IDs/ports) can be used for other sites
-(`bank`, `university`, etc.).  Each node will automatically register with
-the federated server, connect via WebSockets, and stream gradient updates.
+which will seed each client database and start three nodes on ports
+8001–8003 along with the federated server (8765) and dashboard (5000).
+
+If you prefer to run a single client manually:
+
+```bash
+CLIENT_ID=hospital1 CLIENT_TYPE=hospital \
+    python application.py --port 8001 \
+        --client-id hospital1 --client-type hospital \
+        --federated-server ws://localhost:8765
+```
+
+Each node automatically registers with the server, connects via WebSockets,
+and streams gradient updates.
 
 ### Federated Server
 
-The coordination server runs separately (no UI necessary):
+The coordination server can be started on its own as well:
 
 ```bash
-python run.py --port 8000
+python application.py --port 8000
 ```
+
+(or via the same start script above).
 
 Use the CLI commands to manage the global model:
 
@@ -47,7 +61,6 @@ Use the CLI commands to manage the global model:
 flask federated-rollback <round_number>
 flask federated-upgrade
 ```
-
 Model rollbacks and upgrades are only available via the terminal; no
 interface exists on the UI.
 

@@ -54,6 +54,8 @@ def start_client_services(app):
             loop.run_forever()
         except Exception as e:
             app.logger.error(f"Error running federated client: {e}")
+            # Don't crash the whole app if client fails
+            return
 
     thread = threading.Thread(target=_run_client_loop, daemon=True)
     thread.start()

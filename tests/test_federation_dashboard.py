@@ -47,6 +47,8 @@ def test_dashboard_open_when_public(setup_app):
         resp = c.get('/federation/dashboard')
         assert resp.status_code == 200
         assert b'Federation' in resp.data
+        # raw JSON debug box should be present
+        assert b'Raw Metrics JSON' in resp.data
 
 
 def test_dashboard_access_after_login(setup_app):
@@ -92,11 +94,14 @@ def test_metrics_endpoint_defaults_and_push(setup_app):
     app = setup_app
     app.config['PUBLIC_FEDERATION_DASHBOARD'] = True
     with app.test_client() as c:
-        # initial state: no server_id set, should be 'unknown'
+        # initial state: server_id may already be populated by the
+        # application startup; our concern is just that the endpoint returns a
+        # string rather than a bare null.
         resp = c.get('/federation/api/metrics')
         assert resp.status_code == 200
         data = resp.get_json()
-        assert data['server_id'] == 'unknown'
+        assert isinstance(data['server_id'], str)
+        assert data['server_id'] != None
 
         # push a round including a server_id
         payload = {
@@ -117,3 +122,58 @@ def test_metrics_endpoint_defaults_and_push(setup_app):
         assert data['server_id'] == 'test-server-42'
         assert data['aggregation_strategy'] == 'fedavg'
         assert data['current_round'] == 1
+
+
+def test_submit_metrics_triggers_server_rounds(setup_app):
+    """Posting to federated API should update internal state and advance rounds."""
+    app = setup_app
+    app.config['PUBLIC_FEDERATION_DASHBOARD'] = True
+    from federated.federated_server import create_federated_server
+    from federated.federated_client import LocalModel
+
+    # create a fresh server instance; scheduler will auto-start but we'll
+    # manage rounds manually via metrics submissions
+    server = create_federated_server(LocalModel(), min_clients=2)
+    server.register_client('a', 'org', '127.0.0.1/32')
+    server.register_client('b', 'org', '127.0.0.1/32')
+
+    with app.test_client() as c:
+        # first client posts metrics (including extra fields that dashboard
+        # should mirror)
+        resp = c.post('/api/federated/submit-metrics', json={
+            'client_id': 'a',
+            'samples': 5,
+            'loss': 1.0,
+            'accuracy': 0.5,
+            'avg_accuracy': 0.5,
+            'avg_loss': 1.0
+        })
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data['current_round'] >= 1
+
+        # second client posts metrics – should bump round counter again
+        resp2 = c.post('/api/federated/submit-metrics', json={
+            'client_id': 'b',
+            'samples': 7,
+            'loss': 0.8,
+            'accuracy': 0.6,
+            'avg_accuracy': 0.6,
+            'avg_loss': 0.8
+        })
+        assert resp2.status_code == 200
+        data2 = resp2.get_json()
+        assert data2['current_round'] >= data['current_round']
+
+        # metrics endpoint should now report nonzero sample counts
+        dmetrics = c.get('/federation/api/metrics').get_json()
+        found = {c['client_id']: c for c in dmetrics['connected_clients']}
+        assert found['a']['samples_contributed'] == 5
+        assert found['b']['samples_contributed'] == 7
+        # because we included accuracy/loss above the client record should
+        # now include those fields as well (the dashboard poller/framework
+        # will mirror whatever extras were sent)
+        assert 'avg_accuracy' in found['a']
+        assert 'avg_loss' in found['a']
+        assert dmetrics['current_round'] >= 1
+

@@ -87,29 +87,46 @@ def get_metrics():
     with _metrics_lock:
         data = dict(_client_metrics)
     
-    # Calculate aggregate metrics
+    # Calculate aggregate metrics based on in‑memory lists.
+    # When the service has just started or only seeded a database the lists
+    # will be empty; in that case we fall back to querying the local database
+    # so that `curl /client/metrics` reflects the seeded alerts/flows rather
+    # than appearing completely blank.
     alerts = data.get('alerts', [])
     anomaly_scores = data.get('anomaly_scores', [])
-    
+
+    # if there are no in-memory alerts, look at the database
+    if not alerts:
+        try:
+            from flask import current_app
+            from app.models.database import Alert, NetworkFlow
+
+            with current_app.app_context():
+                total_from_db = Alert.query.count()
+                if total_from_db > 0:
+                    alerts = [a.to_dict() for a in Alert.query.order_by(Alert.timestamp.desc()).limit(5).all()]
+                # also update anomaly count from flows if available
+                anomalies_db = NetworkFlow.query.filter_by(is_anomaly=True).count()
+                if anomalies_db > 0 and not anomaly_scores:
+                    anomaly_scores = [0.0] * anomalies_db  # placeholder list just for count
+        except Exception:
+            pass
+
     import statistics
-    
-    # compute averages only when we have data; previously the code returned
-    # a default of 0.5 which made a brand-new client look as though it was
-    # performing at '50% accuracy' even though no training had happened.  A
-    # null value is clearer for dashboard visualisations and for users
-    # inspecting the JSON directly.
+
     avg_loss = statistics.mean(anomaly_scores) if anomaly_scores else None
     avg_accuracy = (1.0 - avg_loss) if avg_loss is not None else None
 
+    # ensure numeric metrics are never null
     metrics = {
         'total_samples': len(alerts),
         'total_anomalies': len(anomaly_scores),
-        'avg_loss': avg_loss,
-        'avg_accuracy': avg_accuracy,
+        'avg_loss': avg_loss if avg_loss is not None else 0.0,
+        'avg_accuracy': avg_accuracy if avg_accuracy is not None else 0.0,
         'model_version_local': data.get('model_version_local'),
         'model_version_global': data.get('model_version_global'),
-        'update_latency': data.get('update_latency'),
-        'last_alerts': data.get('alerts', [])[:5]  # Last 5 alerts
+        'update_latency': data.get('update_latency') if data.get('update_latency') is not None else 0.0,
+        'last_alerts': alerts[:5]
     }
-    
+
     return jsonify(metrics)

@@ -345,6 +345,10 @@ class FederatedServer:
         self._ws_host = None
         self._ws_port = None
         
+        # scheduler control flags/thread
+        self._stop_scheduler = False
+        self._scheduler_thread = None
+        
         logger.info(f"Federated server initialized: {self.config.server_id}")
     
     def register_client(
@@ -744,6 +748,7 @@ class FederatedServer:
             
             # Notify dashboard of round completion
             try:
+                logger.info(f"Invoking notify_round_completed for round {self.current_round}")
                 from .metrics_bridge import notify_round_completed
                 notify_round_completed(
                     self.current_round,
@@ -754,7 +759,7 @@ class FederatedServer:
                     round_info.model_version
                 )
             except ImportError:
-                pass
+                logger.exception('Failed to import metrics_bridge.notify_round_completed')
             
             # Clear round buffer
             self.round_updates = []
@@ -911,6 +916,48 @@ class FederatedServer:
                     r.to_dict() for r in self.round_history[-10:]
                 ]
             }
+
+    # ------------------------------------------------------------------
+    # Scheduler helpers
+    # ------------------------------------------------------------------
+    def start_round_scheduler(self, num_rounds: int = 0, interval: float = 5.0):
+        """Run federated rounds automatically in a background thread.
+
+        Args:
+            num_rounds: If >0, stop after this many rounds. Otherwise run forever
+                until :meth:`stop` is called.
+            interval: Time in seconds to wait between starting rounds. This also
+                gives clients a small window to submit updates/metrics.
+        """
+        # If already running, do nothing
+        if self._scheduler_thread and self._scheduler_thread.is_alive():
+            return
+
+        def _run():
+            rounds_done = 0
+            logger.info(f"Round scheduler starting (num_rounds={num_rounds}, interval={interval}s)")
+            while not self._stop_scheduler and (num_rounds == 0 or rounds_done < num_rounds):
+                with self._lock:
+                    # open a new round and immediately aggregate any buffered updates
+                    self.start_round()
+                # pause to allow external updates to be received
+                time.sleep(interval)
+                with self._lock:
+                    self.aggregate_round()
+                rounds_done += 1
+            logger.info("Round scheduler exiting")
+
+        self._stop_scheduler = False
+        self._scheduler_thread = threading.Thread(target=_run, daemon=True)
+        self._scheduler_thread.start()
+
+    def stop(self):
+        """Cleanly stop any background scheduling and mark server as stopped."""
+        self._stop_scheduler = True
+        if self._scheduler_thread and self._scheduler_thread.is_alive():
+            # give thread a moment to exit
+            self._scheduler_thread.join(timeout=1)
+        logger.info("Federation server stopped")
     
     def get_client_stats(self) -> List[Dict[str, Any]]:
         """Get statistics for all clients."""
@@ -967,6 +1014,7 @@ def create_federated_server(
     aggregation_strategy: str = "fedavg",
     min_clients: int = 3,
     device: str = 'cpu',
+    auto_start_scheduler: bool = True,
     **kwargs
 ) -> FederatedServer:
     """
@@ -993,6 +1041,16 @@ def create_federated_server(
     server = FederatedServer(model, config, device)
     global GLOBAL_SERVER
     GLOBAL_SERVER = server
+    # Automatically spin up round scheduler if requested.  This allows a
+    # freshly-created server to begin processing rounds without any
+    # external trigger, which is handy for demo scripts and tests.
+    if auto_start_scheduler:
+        try:
+            server.start_round_scheduler()
+        except Exception:
+            # scheduler is best-effort; failure shouldn't prevent server
+            pass
+
     # Initialize dashboard (either in-process or via HTTP ingest)
     try:
         from .metrics_bridge import initialize_federation_dashboard_metrics

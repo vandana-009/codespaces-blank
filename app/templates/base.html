@@ -222,6 +222,14 @@
     </main>
     
     {% else %}
+    {% if request.endpoint == 'federation_dashboard.federation_dashboard' and config.get('PUBLIC_FEDERATION_DASHBOARD', False) %}
+    <!-- Public federation dashboard view when user is not authenticated -->
+    <main class="main-content">
+        <div class="content-wrapper">
+            {{ self.content() }}
+        </div>
+    </main>
+    {% else %}
     <!-- Non-authenticated layout -->
     <div class="auth-wrapper">
         {% with messages = get_flashed_messages(with_categories=true) %}
@@ -239,6 +247,7 @@
         
         {% block auth_content %}{% endblock %}
     </div>
+    {% endif %}
     {% endif %}
     
     <!-- Bootstrap JS -->

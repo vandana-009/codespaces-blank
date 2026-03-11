@@ -88,6 +88,34 @@ def create_app(config_name=None):
             db.session.add(admin)
             db.session.commit()
             app.logger.info('Created default admin user')
+        
+        # Initialize federated server if not already initialized
+        try:
+            from federated.federated_server import get_global_server, create_federated_server
+            import torch.nn as nn
+            
+            if get_global_server() is None:
+                # Create simple model for federated learning
+                model = nn.Sequential(
+                    nn.Linear(80, 64),
+                    nn.ReLU(),
+                    nn.Linear(64, 32),
+                    nn.ReLU(),
+                    nn.Linear(32, 10)
+                )
+                
+                server = create_federated_server(
+                    model=model,
+                    aggregation_strategy="fedavg",
+                    min_clients=2,
+                    device='cpu',
+                    auto_start_scheduler=False
+                )
+                app.logger.info(f'Federated server initialized with ID: {server.config.server_id}')
+            else:
+                app.logger.info('Federated server already initialized')
+        except Exception as e:
+            app.logger.warning(f'Could not initialize federated server: {e}')
     
     # Register CLI commands
     register_cli_commands(app)
@@ -101,8 +129,8 @@ def create_app(config_name=None):
     try:
         from app.services.client_node import start_client_services
         start_client_services(app)
-    except ImportError:
-        app.logger.warning('Client node service module not available')
+    except Exception as e:
+        app.logger.warning(f'Client node service failed to start: {e}')
 
     return app
 
@@ -142,6 +170,7 @@ def register_blueprints(app):
     from app.routes.zero_day import zero_day_bp
     from app.routes.federated_clients_api import federated_clients_bp
     from app.routes.mitigation import mitigation_bp
+    from app.routes.federated import federated_bp
     
     # optionally register client-local dashboard if running as a federated client
     client_bp = None
@@ -164,6 +193,8 @@ def register_blueprints(app):
     app.register_blueprint(zero_day_bp)
     app.register_blueprint(federated_clients_bp)
     app.register_blueprint(mitigation_bp, url_prefix='/mitigation')
+    app.register_blueprint(federated_bp)
+    csrf.exempt(federated_bp)
     
     # Register federation server dashboard
     try:

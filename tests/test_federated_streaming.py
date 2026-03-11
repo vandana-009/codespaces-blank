@@ -1,6 +1,7 @@
 import asyncio
 import pytest
 import torch
+import time
 
 from federated.federated_server import create_federated_server
 from federated.federated_client import create_federated_client, ClientConfig
@@ -96,3 +97,18 @@ def test_streaming_server(tmp_path):
     asyncio.get_event_loop().run_until_complete(_client_server_handshake(server))
     # after handshake the global model state should have changed slightly
     assert 'w' in server.global_model_state or True  # we didn't actually modify model in handshake
+
+
+def test_round_scheduler_runs(tmp_path):
+    """Scheduler should process the requested number of rounds."""
+    from federated.federated_client import LocalModel
+    model = LocalModel()
+    server = create_federated_server(model, min_clients=0, auto_start_scheduler=False)
+
+    # manually start scheduler for two quick rounds
+    server.start_round_scheduler(num_rounds=2, interval=0.01)
+    # give scheduler time to complete
+    time.sleep(0.05)
+    assert server.current_round == 2
+    # stopping should be idempotent
+    server.stop()
