@@ -219,53 +219,6 @@ def start_local_client_poller(app=None, interval=None, ports=None):
     t.start()
     _local_poller_thread = t
 
-    # Also start a small poller that watches for a last-round file written by
-    # the federated server process. This provides a robust cross-process
-    # notification channel when HTTP pushes or in-process imports are not
-    # available (e.g., separate processes in the exam environment).
-    def _poll_last_round_file(interval=3, path='/tmp/federation_last_round.json'):
-        import os
-        import json
-        while True:
-            try:
-                if os.path.exists(path):
-                    with open(path, 'r') as fh:
-                        data = json.load(fh)
-                    try:
-                        r = int(data.get('round'))
-                        participants = int(data.get('participants', 0))
-                        samples = int(data.get('samples', 0))
-                        loss = float(data.get('loss', 0.0))
-                        accuracy = float(data.get('accuracy', 0.0))
-                        model_version = data.get('model_version')
-                    except Exception:
-                        # malformed file - remove and continue
-                        try:
-                            os.remove(path)
-                        except Exception:
-                            pass
-                        time.sleep(interval)
-                        continue
-
-                    # Update federation metrics and record the round
-                    try:
-                        update_federation_metrics(server_id=data.get('server_id'), aggregation_strategy=data.get('aggregation_strategy'))
-                        record_round_completion(r, participants, samples, loss, accuracy, model_version)
-                        # Remove the file after successful processing
-                        try:
-                            os.remove(path)
-                        except Exception:
-                            pass
-                    except Exception:
-                        # on failure keep the file for next attempt
-                        pass
-            except Exception:
-                pass
-            time.sleep(interval)
-
-    t2 = threading.Thread(target=_poll_last_round_file, args=(3,), daemon=True)
-    t2.start()
-
 
 @federation_dashboard_bp.route('/dashboard', strict_slashes=False)
 def federation_dashboard():
